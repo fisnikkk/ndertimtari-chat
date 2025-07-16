@@ -1,47 +1,51 @@
-// app/api/chat/route.ts
+/* app/api/chat/route.ts */
 import type { NextRequest } from "next/server";
-import { askConstructionBot } from "../../../lib/qa";
+import { askConstructionBot } from "@/lib/qa";
+
+type ChatMessage = { role?: string; content?: string };
+interface ChatRequestBody {
+  prompt?: string;
+  messages?: ChatMessage[];
+}
 
 /**
- * Expected request body shapes:
+ * Accepts POST JSON:
  *   { prompt: "..." }
- *   { messages: [{role:"user"|"assistant", content:"..."}, ...] }
- * We'll grab the *last* user message as the question.
+ *   { messages: [{role:"user", content:"..."}, ...] }
  */
 export async function POST(req: NextRequest): Promise<Response> {
+  let body: ChatRequestBody = {};
+
   try {
-    const body = await req.json().catch(() => ({} as any));
+    body = (await req.json()) as ChatRequestBody;
+  } catch {
+    // ignore bad JSON; keep body = {}
+  }
 
-    let question = "";
+  // Extract the question (last user message; fallback prompt)
+  let question = "";
 
-    // If messages[] provided, take last user content
-    if (Array.isArray(body?.messages)) {
-      for (let i = body.messages.length - 1; i >= 0; i--) {
-        const m = body.messages[i];
-        if (m?.role === "user" && typeof m?.content === "string") {
-          question = m.content;
-          break;
-        }
+  if (Array.isArray(body.messages)) {
+    for (let i = body.messages.length - 1; i >= 0; i--) {
+      const m = body.messages[i];
+      if (m?.role === "user" && typeof m?.content === "string") {
+        question = m.content;
+        break;
       }
     }
+  }
 
-    // Fallback to body.prompt
-    if (!question && typeof body?.prompt === "string") {
-      question = body.prompt;
-    }
+  if (!question && typeof body.prompt === "string") {
+    question = body.prompt;
+  }
 
-    if (!question.trim()) {
-      return json(400, { error: "empty_question" });
-    }
+  if (!question.trim()) {
+    return json(400, { error: "empty_question" });
+  }
 
+  try {
     const answer = await askConstructionBot(question);
-
-    return json(200, {
-      message: {
-        role: "assistant",
-        content: answer,
-      },
-    });
+    return json(200, { message: { role: "assistant", content: answer } });
   } catch (err) {
     console.error("/api/chat error:", err);
     return json(500, {
